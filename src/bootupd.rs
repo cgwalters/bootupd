@@ -260,7 +260,7 @@ fn print_component(
     let name = component.name();
     writeln!(r, "Component {}", name)?;
     writeln!(r, "  Installed: {}", format_version(installed))?;
-    let update = component.query_update()?;
+
     let update = match update.as_ref() {
         Some(p) if !p.compare(installed) => Some(p),
         _ => None,
@@ -281,31 +281,25 @@ fn print_component(
     Ok(())
 }
 
-fn status(opts: &StatusOptions) -> Result<String> {
-    let state = get_saved_state("/")?;
-    if opts.json {
-        let r = serde_json::to_string(&state)?;
-        Ok(r)
-    } else if let Some(state) = state {
-        let mut r = String::new();
+fn status(opts: &StatusOptions) -> Result<Status> {
+    let mut ret = Default::default();
+    let Some(state) = get_saved_state("/")? {
         for (name, ic) in state.installed.iter() {
             let component = component::new_from_name(&name)?;
             let component = component.as_ref();
-            print_component(
-                component,
-                &ic.meta,
-                state
-                    .pending
-                    .as_ref()
-                    .map(|p| p.get(name.as_str()))
-                    .flatten(),
-                &mut r,
-            )?;
+            let installed = ic.meta;
+            let interrupted = state
+                .pending
+                .as_ref()
+                .map(|p| p.get(name.as_str()))
+                .flatten();
+            let update = component.query_update()?;
+            ret.insert(name.to_string(), ComponentStatus {
+                installed, interrupted, update
+            });
         }
-        Ok(r)
-    } else {
-        Ok("No components installed.".to_string())
     }
+    Ok(ret)
 }
 
 fn daemon_process_one(client: &mut ipc::AuthenticatedClient) -> Result<()> {
@@ -327,7 +321,7 @@ fn daemon_process_one(client: &mut ipc::AuthenticatedClient) -> Result<()> {
             Opt::Status(ref opts) => {
                 println!("Processing status");
                 status(opts)
-            }
+            },
         };
         let r = match r {
             Ok(s) => ipc::DaemonToClientReply::Success(s),

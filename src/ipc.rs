@@ -15,8 +15,8 @@ pub(crate) const MSGSIZE: usize = 1_048_576;
 pub(crate) const BOOTUPD_HELLO_MSG: &str = "bootupd-hello\n";
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum DaemonToClientReply {
-    Success(String),
+pub(crate) enum DaemonToClientReply<T: serde::Deserialize<'static>> {
+    Success(T),
     Failure(String),
 }
 
@@ -65,13 +65,13 @@ impl ClientToDaemonConnection {
         Ok(())
     }
 
-    pub(crate) fn send(&mut self, opt: &crate::Opt) -> Result<DaemonToClientReply> {
+    pub(crate) fn send<T: Deserialize<'static>>(&mut self, opt: &crate::Opt) -> Result<DaemonToClientReply<T>> {
         {
             let serialized = bincode::serialize(opt)?;
             let _ = nixsocket::send(self.fd, &serialized, nixsocket::MsgFlags::MSG_CMSG_CLOEXEC)
                 .context("client sending request")?;
         }
-        let reply: DaemonToClientReply = {
+        let reply: DaemonToClientReply<T> = {
             let mut buf = [0u8; MSGSIZE];
             let n = nixsocket::recv(self.fd, &mut buf, nixsocket::MsgFlags::MSG_CMSG_CLOEXEC)
                 .context("client recv")?;
