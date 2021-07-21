@@ -136,6 +136,7 @@ else
     runv timeout 5m "${qemuexec_args[@]}" --console-to-file $(pwd)/console.txt
 fi
 if ! test -f ${testtmp}/success; then
+    mv console.txt "${COSA_DIR}/tmp"
     if test -s ${testtmp}/out.txt; then
         sed -e 's,^,# ,' < ${testtmp}/out.txt
     else
