@@ -1,5 +1,5 @@
 [Socket]
-ListenSequentialPacket=/run/bootupd.sock
+ListenStream=/run/bootupd.sock
 SocketMode=0600
 
 [Install]

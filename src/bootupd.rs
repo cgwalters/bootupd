@@ -296,7 +296,7 @@ pub(crate) fn print_status(status: &Status) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn client_run_update(c: &mut ipc::ClientToDaemonConnection) -> Result<()> {
+pub(crate) fn client_run_update(c: &mut ipc::ClientToDaemonConnection<ClientRequest, ) -> Result<()> {
     let status: Status = c.send(&ClientRequest::Status)?;
     if status.components.is_empty() && status.adoptable.is_empty() {
         println!("No components installed.");

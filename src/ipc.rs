@@ -21,21 +21,17 @@ pub(crate) enum DaemonToClientReply<T> {
     Failure(String),
 }
 
-pub(crate) struct ClientToDaemonConnection {
-    fd: i32,
+pub(crate) struct ClientToDaemonConnection<S, R>
+where
+    S: serde::ser::Serialize,
+    R: serde::de::DeserializeOwned,
+{
+    conn: Option<(tokio_unix_ipc::Sender<S>, tokio_unix_ipc::Receiver<R>)>,
 }
 
-impl Drop for ClientToDaemonConnection {
-    fn drop(&mut self) {
-        if self.fd != -1 {
-            nix::unistd::close(self.fd).expect("close");
-        }
-    }
-}
-
-impl ClientToDaemonConnection {
+impl<S, R> ClientToDaemonConnection<S, R> {
     pub(crate) fn new() -> Self {
-        Self { fd: -1 }
+        Self { conn: None }
     }
 
     #[context("connecting to {}", BOOTUPD_SOCKET)]
@@ -66,10 +62,7 @@ impl ClientToDaemonConnection {
         Ok(())
     }
 
-    pub(crate) fn send<S: serde::ser::Serialize, T: serde::de::DeserializeOwned>(
-        &mut self,
-        msg: &S,
-    ) -> Result<T> {
+    pub(crate) fn send(&mut self, msg: &S) -> Result<T> {
         {
             let serialized = bincode::serialize(msg)?;
             let _ = nixsocket::send(self.fd, &serialized, nixsocket::MsgFlags::MSG_CMSG_CLOEXEC)
