@@ -33,6 +33,8 @@ openat-ext = ">= 0.2.2, < 0.3.0"
 openssl = "^0.10"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
+tokio = { version = "1.19.0", features = ["macros", "time", "process", "rt", "net"] }
+tokio-unix-ipc = "0.3"
 tempfile = "^3.3"
 
 [profile.release]
@@ -47,3 +49,6 @@ pre-release-commit-message = "cargo: bootupd release {{version}}"
 sign-commit = true
 sign-tag = true
 tag-message = "bootupd {{version}}"
+
+[patch.crates-io]
+tokio-unix-ipc = { "path" = "../../mitsuhiko/tokio-unix-ipc" }

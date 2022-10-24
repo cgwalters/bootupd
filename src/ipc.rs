@@ -7,19 +7,11 @@
 use anyhow::{bail, Context, Result};
 use fn_error_context::context;
 use nix::sys::socket as nixsocket;
-use serde::{Deserialize, Serialize};
-use std::os::unix::io::RawFd;
+
+use std::os::unix::net::UnixStream as StdUnixStream;
 
 pub(crate) const BOOTUPD_SOCKET: &str = "/run/bootupd.sock";
 pub(crate) const MSGSIZE: usize = 1_048_576;
-/// Sent between processes along with SCM credentials
-pub(crate) const BOOTUPD_HELLO_MSG: &str = "bootupd-hello\n";
-
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum DaemonToClientReply<T> {
-    Success(T),
-    Failure(String),
-}
 
 pub(crate) struct ClientToDaemonConnection {
     fd: i32,
@@ -97,73 +89,5 @@ impl ClientToDaemonConnection {
     pub(crate) fn shutdown(&mut self) -> Result<()> {
         nixsocket::shutdown(self.fd, nixsocket::Shutdown::Both)?;
         Ok(())
-    }
-}
-
-pub(crate) struct UnauthenticatedClient {
-    fd: RawFd,
-}
-
-impl UnauthenticatedClient {
-    pub(crate) fn new(fd: RawFd) -> Self {
-        Self { fd }
-    }
-
-    pub(crate) fn authenticate(mut self) -> Result<AuthenticatedClient> {
-        use nix::sys::uio::IoVec;
-        let fd = self.fd;
-        let mut buf = [0u8; 1024];
-
-        nixsocket::setsockopt(fd, nix::sys::socket::sockopt::PassCred, &true)?;
-        let iov = IoVec::from_mut_slice(buf.as_mut());
-        let mut cmsgspace = nix::cmsg_space!(nixsocket::UnixCredentials);
-        let msg = nixsocket::recvmsg(
-            fd,
-            &[iov],
-            Some(&mut cmsgspace),
-            nixsocket::MsgFlags::MSG_CMSG_CLOEXEC,
-        )?;
-        let mut creds = None;
-        for cmsg in msg.cmsgs() {
-            if let nixsocket::ControlMessageOwned::ScmCredentials(c) = cmsg {
-                creds = Some(c);
-                break;
-            }
-        }
-        if let Some(creds) = creds {
-            if creds.uid() != 0 {
-                bail!("unauthorized pid:{} uid:{}", creds.pid(), creds.uid())
-            }
-            println!("Connection from pid:{}", creds.pid());
-        } else {
-            bail!("No SCM credentials provided");
-        }
-        let hello = String::from_utf8_lossy(&buf[0..msg.bytes]);
-        if hello != BOOTUPD_HELLO_MSG {
-            bail!("Didn't receive correct hello message, found: {:?}", &hello);
-        }
-        let r = AuthenticatedClient { fd: self.fd };
-        self.fd = -1;
-        Ok(r)
-    }
-}
-
-impl Drop for UnauthenticatedClient {
-    fn drop(&mut self) {
-        if self.fd != -1 {
-            nix::unistd::close(self.fd).expect("close");
-        }
-    }
-}
-
-pub(crate) struct AuthenticatedClient {
-    pub(crate) fd: RawFd,
-}
-
-impl Drop for AuthenticatedClient {
-    fn drop(&mut self) {
-        if self.fd != -1 {
-            nix::unistd::close(self.fd).expect("close");
-        }
     }
 }
