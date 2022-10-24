@@ -70,12 +70,12 @@ pub struct StatusOpts {
 
 impl CtlCommand {
     /// Run CLI application.
-    pub fn run(self) -> Result<()> {
+    pub async fn run(self) -> Result<()> {
         match self.cmd {
-            CtlVerb::Status(opts) => Self::run_status(opts),
-            CtlVerb::Update => Self::run_update(),
-            CtlVerb::AdoptAndUpdate => Self::run_adopt_and_update(),
-            CtlVerb::Validate => Self::run_validate(),
+            CtlVerb::Status(opts) => Self::run_status(opts).await,
+            CtlVerb::Update => Self::run_update().await,
+            CtlVerb::AdoptAndUpdate => Self::run_adopt_and_update().await,
+            CtlVerb::Validate => Self::run_validate().await,
             CtlVerb::Backend(CtlBackend::Generate(opts)) => {
                 super::bootupd::DCommand::run_generate_meta(opts)
             }
@@ -86,11 +86,10 @@ impl CtlCommand {
     }
 
     /// Runner for `status` verb.
-    fn run_status(opts: StatusOpts) -> Result<()> {
-        let mut client = ClientToDaemonConnection::new();
-        client.connect()?;
+    async fn run_status(opts: StatusOpts) -> Result<()> {
+        let mut client = ClientToDaemonConnection::new().await?;
 
-        let r: Status = client.send(&bootupd::ClientRequest::Status)?;
+        let r: Status = client.send(bootupd::ClientRequest::Status).await?;
         if opts.json {
             let stdout = std::io::stdout();
             let mut stdout = stdout.lock();
@@ -106,32 +105,27 @@ impl CtlCommand {
     }
 
     /// Runner for `update` verb.
-    fn run_update() -> Result<()> {
-        let mut client = ClientToDaemonConnection::new();
-        client.connect()?;
+    async fn run_update() -> Result<()> {
+        let mut client = ClientToDaemonConnection::new().await?;
 
-        bootupd::client_run_update(&mut client)?;
+        bootupd::client_run_update(&mut client).await?;
 
         client.shutdown()?;
         Ok(())
     }
 
     /// Runner for `update` verb.
-    fn run_adopt_and_update() -> Result<()> {
-        let mut client = ClientToDaemonConnection::new();
-        client.connect()?;
-
-        bootupd::client_run_adopt_and_update(&mut client)?;
-
+    async fn run_adopt_and_update() -> Result<()> {
+        let mut client = ClientToDaemonConnection::new().await?;
+        bootupd::client_run_adopt_and_update(&mut client).await?;
         client.shutdown()?;
         Ok(())
     }
 
     /// Runner for `validate` verb.
-    fn run_validate() -> Result<()> {
-        let mut client = ClientToDaemonConnection::new();
-        client.connect()?;
-        bootupd::client_run_validate(&mut client)?;
+    async fn run_validate() -> Result<()> {
+        let mut client = ClientToDaemonConnection::new().await?;
+        bootupd::client_run_validate(&mut client).await?;
         client.shutdown()?;
         Ok(())
     }

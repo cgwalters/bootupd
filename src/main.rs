@@ -32,13 +32,14 @@ mod util;
 use clap::crate_name;
 
 /// Binary entrypoint, for both daemon and client logic.
-fn main() {
-    let exit_code = run_cli();
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let exit_code = run_cli().await;
     std::process::exit(exit_code);
 }
 
 /// CLI logic.
-fn run_cli() -> i32 {
+async fn run_cli() -> i32 {
     // Parse command-line options.
     let args: Vec<_> = std::env::args().collect();
     let cli_opts = cli::MultiCall::from_args(args);
@@ -51,7 +52,7 @@ fn run_cli() -> i32 {
         .init();
 
     // Dispatch CLI subcommand.
-    match cli_opts.run() {
+    match cli_opts.run().await {
         Ok(_) => libc::EXIT_SUCCESS,
         Err(e) => {
             // Use the alternative formatter to get everything on a single line... it reads better.

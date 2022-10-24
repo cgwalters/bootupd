@@ -296,8 +296,8 @@ pub(crate) fn print_status(status: &Status) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn client_run_update(c: &mut ipc::ClientToDaemonConnection) -> Result<()> {
-    let status: Status = c.send(&ClientRequest::Status)?;
+pub(crate) async fn client_run_update(c: &mut ipc::ClientToDaemonConnection) -> Result<()> {
+    let status: Status = c.send(ClientRequest::Status).await?;
     if status.components.is_empty() && status.adoptable.is_empty() {
         println!("No components installed.");
         return Ok(());
@@ -308,9 +308,12 @@ pub(crate) fn client_run_update(c: &mut ipc::ClientToDaemonConnection) -> Result
             ComponentUpdatable::Upgradable => {}
             _ => continue,
         };
-        match c.send(&ClientRequest::Update {
-            component: name.to_string(),
-        })? {
+        match c
+            .send(ClientRequest::Update {
+                component: name.to_string(),
+            })
+            .await?
+        {
             ComponentUpdateResult::AtLatestVersion => {
                 // Shouldn't happen unless we raced with another client
                 eprintln!(
@@ -337,9 +340,11 @@ pub(crate) fn client_run_update(c: &mut ipc::ClientToDaemonConnection) -> Result
     }
     for (name, adoptable) in status.adoptable.iter() {
         if adoptable.confident {
-            let r: ContentMetadata = c.send(&ClientRequest::AdoptAndUpdate {
-                component: name.to_string(),
-            })?;
+            let r: ContentMetadata = c
+                .send(ClientRequest::AdoptAndUpdate {
+                    component: name.to_string(),
+                })
+                .await?;
             println!("Adopted and updated: {}: {}", name, r.version);
             updated = true;
         } else {
@@ -352,32 +357,39 @@ pub(crate) fn client_run_update(c: &mut ipc::ClientToDaemonConnection) -> Result
     Ok(())
 }
 
-pub(crate) fn client_run_adopt_and_update(c: &mut ipc::ClientToDaemonConnection) -> Result<()> {
-    let status: Status = c.send(&ClientRequest::Status)?;
+pub(crate) async fn client_run_adopt_and_update(
+    c: &mut ipc::ClientToDaemonConnection,
+) -> Result<()> {
+    let status: Status = c.send(ClientRequest::Status).await?;
     if status.adoptable.is_empty() {
         println!("No components are adoptable.");
     } else {
         for (name, _) in status.adoptable.iter() {
-            let r: ContentMetadata = c.send(&ClientRequest::AdoptAndUpdate {
-                component: name.to_string(),
-            })?;
+            let r: ContentMetadata = c
+                .send(ClientRequest::AdoptAndUpdate {
+                    component: name.to_string(),
+                })
+                .await?;
             println!("Adopted and updated: {}: {}", name, r.version);
         }
     }
     Ok(())
 }
 
-pub(crate) fn client_run_validate(c: &mut ipc::ClientToDaemonConnection) -> Result<()> {
-    let status: Status = c.send(&ClientRequest::Status)?;
+pub(crate) async fn client_run_validate(c: &mut ipc::ClientToDaemonConnection) -> Result<()> {
+    let status: Status = c.send(ClientRequest::Status).await?;
     if status.components.is_empty() {
         println!("No components installed.");
         return Ok(());
     }
     let mut caught_validation_error = false;
     for (name, _) in status.components.iter() {
-        match c.send(&ClientRequest::Validate {
-            component: name.to_string(),
-        })? {
+        match c
+            .send(ClientRequest::Validate {
+                component: name.to_string(),
+            })
+            .await?
+        {
             ValidationResult::Valid => {
                 println!("Validated: {}", name);
             }

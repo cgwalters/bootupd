@@ -2,14 +2,12 @@
 
 use crate::bootupd::ClientRequest;
 use crate::component::ValidationResult;
+use crate::ipc::DaemonToClientReply;
 use crate::model::Status;
 use crate::{bootupd, ipc};
 use anyhow::{bail, Context, Result};
 use libsystemd::activation::IsType;
-use nix::sys::socket as nixsocket;
-use serde::{Deserialize, Serialize};
 use std::os::unix::net::UnixListener as StdUnixListener;
-use std::os::unix::net::UnixStream as StdUnixStream;
 use std::os::unix::prelude::*;
 use std::time::Duration;
 use tokio::net::{UnixListener, UnixStream};
@@ -21,15 +19,7 @@ use tokio::net::{UnixListener, UnixStream};
 /// able to use systemd sandboxing.
 /// But we don't want to have a process pointlessly hanging
 /// around, so we time out and exit pretty quickly.
-const DAEMON_TIMEOUT_SECS: u32 = 1;
-/// Sent between processes along with SCM credentials
-pub(crate) const BOOTUPD_HELLO_MSG: &str = "bootupd-hello\n";
-
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum DaemonToClientReply<T> {
-    Success(T),
-    Failure(String),
-}
+const DAEMON_TIMEOUT_SECS: u64 = 1;
 
 async fn process_one_client(sock: UnixStream) -> Result<()> {
     // The tokio-unix-ipc bits want to own the FD, so convert back to
@@ -41,7 +31,7 @@ async fn process_one_client(sock: UnixStream) -> Result<()> {
         bail!("unauthorized pid:{} uid:{}", creds.pid(), creds.uid())
     }
     let hello = String::from_utf8_lossy(&contents);
-    if hello != BOOTUPD_HELLO_MSG {
+    if hello != ipc::BOOTUPD_HELLO_MSG {
         bail!("Didn't receive correct hello message, found: {:?}", &hello);
     }
 
@@ -52,7 +42,7 @@ async fn process_one_client(sock: UnixStream) -> Result<()> {
 async fn run_async(sock: StdUnixListener) -> Result<()> {
     let sock: UnixListener = sock.try_into()?;
 
-    let timeout = tokio::time::sleep(Duration::from_secs(1));
+    let timeout = tokio::time::sleep(Duration::from_secs(DAEMON_TIMEOUT_SECS));
     tokio::pin!(timeout);
     loop {
         tokio::select! {
@@ -75,15 +65,12 @@ async fn run_async(sock: StdUnixListener) -> Result<()> {
 /// systemd's built in sandboxing (ProtectHome=yes) etc. and also
 /// ensures that only a single bootupd instance is running at
 /// a time (i.e. don't support concurrent updates).
-pub fn run() -> Result<()> {
+pub async fn run() -> Result<()> {
     let sockfd = systemd_activation().context("systemd service activation error")?;
     assert!(sockfd.is_unix());
     let sockfd = unsafe { StdUnixListener::from_raw_fd(sockfd.into_raw_fd()) };
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("Failed to build tokio runtime")?;
+    let runtime = tokio::runtime::Handle::current();
     runtime.block_on(async move { run_async(sockfd).await })
 }
 
@@ -122,40 +109,31 @@ async fn process_client_requests(
     send: tokio_unix_ipc::RawSender,
     recv: tokio_unix_ipc::RawReceiver,
 ) -> Result<()> {
-    let send: tokio_unix_ipc::Sender<DaemonToClientReply<_>> = send.into();
+    let send: tokio_unix_ipc::Sender<DaemonToClientReply> = send.into();
     let recv: tokio_unix_ipc::Receiver<ClientRequest> = recv.into();
     loop {
         let msg = recv.recv().await?;
         log::trace!("processing request: {:?}", &msg);
         let r = match msg {
-            ClientRequest::Update { component } => {
-                let r = match bootupd::update(component.as_str()) {
-                    Ok(v) => DaemonToClientReply::Success::<bootupd::ComponentUpdateResult>(v),
-                    Err(e) => DaemonToClientReply::Failure(format!("{:#}", e)),
-                };
-                send.send(r).await?;
+            ClientRequest::Update { component } => match bootupd::update(component.as_str()) {
+                Ok(v) => DaemonToClientReply::Success(bincode::serialize(&v)?),
+                Err(e) => DaemonToClientReply::Failure(format!("{:#}", e)),
             },
             ClientRequest::AdoptAndUpdate { component } => {
-                let r = match bootupd::adopt_and_update(component.as_str()) {
-                    Ok(v) => DaemonToClientReply::Success::<crate::model::ContentMetadata>(v),
+                match bootupd::adopt_and_update(component.as_str()) {
+                    Ok(v) => DaemonToClientReply::Success(bincode::serialize(&v)?),
                     Err(e) => DaemonToClientReply::Failure(format!("{:#}", e)),
-                };
-                send.send(r).await?;
+                }
             }
-            ClientRequest::Validate { component } => {
-                let r = match bootupd::validate(component.as_str()) {
-                    Ok(v) => DaemonToClientReply::Success::<ValidationResult>(v),
-                    Err(e) => DaemonToClientReply::Failure(format!("{:#}", e)),
-                };
-                send.send(r).await?;
-            }
-            ClientRequest::Status => { let r = match bootupd::status() {
-                Ok(v) => DaemonToClientReply::Success::<Status>(v),
+            ClientRequest::Validate { component } => match bootupd::validate(component.as_str()) {
+                Ok(v) => DaemonToClientReply::Success(bincode::serialize(&v)?),
                 Err(e) => DaemonToClientReply::Failure(format!("{:#}", e)),
-            };
-            send.send(r).await?;
-        }
+            },
+            ClientRequest::Status => match bootupd::status() {
+                Ok(v) => DaemonToClientReply::Success(bincode::serialize(&v)?),
+                Err(e) => DaemonToClientReply::Failure(format!("{:#}", e)),
+            },
         };
+        send.send(r).await?;
     }
-    Ok(())
 }

@@ -32,10 +32,10 @@ impl MultiCall {
         }
     }
 
-    pub fn run(self) -> Result<()> {
+    pub async fn run(self) -> Result<()> {
         match self {
-            MultiCall::Ctl(ctl_cmd) => ctl_cmd.run(),
-            MultiCall::D(d_cmd) => d_cmd.run(),
+            MultiCall::Ctl(ctl_cmd) => ctl_cmd.run().await,
+            MultiCall::D(d_cmd) => d_cmd.run().await,
         }
     }
 

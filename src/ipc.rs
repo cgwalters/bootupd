@@ -7,78 +7,48 @@
 use anyhow::{bail, Context, Result};
 use fn_error_context::context;
 use nix::sys::socket as nixsocket;
-
+use serde::{Deserialize, Serialize};
 use std::os::unix::net::UnixStream as StdUnixStream;
 
-pub(crate) const BOOTUPD_SOCKET: &str = "/run/bootupd.sock";
-pub(crate) const MSGSIZE: usize = 1_048_576;
+use crate::bootupd::ClientRequest;
 
-pub(crate) struct ClientToDaemonConnection {
-    fd: i32,
+pub(crate) const BOOTUPD_SOCKET: &str = "/run/bootupd.sock";
+/// Sent between processes along with SCM credentials
+pub(crate) const BOOTUPD_HELLO_MSG: &str = "bootupd-hello\n";
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum DaemonToClientReply {
+    Success(Vec<u8>),
+    Failure(String),
 }
 
-impl Drop for ClientToDaemonConnection {
-    fn drop(&mut self) {
-        if self.fd != -1 {
-            nix::unistd::close(self.fd).expect("close");
-        }
-    }
+pub(crate) struct ClientToDaemonConnection {
+    send: tokio_unix_ipc::Sender<crate::bootupd::ClientRequest>,
+    recv: tokio_unix_ipc::Receiver<DaemonToClientReply>,
 }
 
 impl ClientToDaemonConnection {
-    pub(crate) fn new() -> Self {
-        Self { fd: -1 }
-    }
-
     #[context("connecting to {}", BOOTUPD_SOCKET)]
-    pub(crate) fn connect(&mut self) -> Result<()> {
-        use nix::sys::uio::IoVec;
-        self.fd = nixsocket::socket(
-            nixsocket::AddressFamily::Unix,
-            nixsocket::SockType::SeqPacket,
-            nixsocket::SockFlag::SOCK_CLOEXEC,
-            None,
-        )?;
-        let addr = nixsocket::SockAddr::new_unix(BOOTUPD_SOCKET)?;
-        nixsocket::connect(self.fd, &addr)?;
-        let creds = libc::ucred {
-            pid: nix::unistd::getpid().as_raw(),
-            uid: nix::unistd::getuid().as_raw(),
-            gid: nix::unistd::getgid().as_raw(),
-        };
-        let creds = nixsocket::UnixCredentials::from(creds);
-        let creds = nixsocket::ControlMessage::ScmCredentials(&creds);
-        let _ = nixsocket::sendmsg(
-            self.fd,
-            &[IoVec::from_slice(BOOTUPD_HELLO_MSG.as_bytes())],
-            &[creds],
-            nixsocket::MsgFlags::MSG_CMSG_CLOEXEC,
-            None,
-        )?;
-        Ok(())
+    pub(crate) async fn new() -> Result<Self> {
+        let sock = StdUnixStream::connect(BOOTUPD_SOCKET)?;
+        let (send, recv) = tokio_unix_ipc::raw_channel_from_std(sock)?;
+        send.send_with_credentials(BOOTUPD_HELLO_MSG.as_bytes(), &[])
+            .await?;
+
+        Ok(Self {
+            send: send.into(),
+            recv: recv.into(),
+        })
     }
 
-    pub(crate) fn send<S: serde::ser::Serialize, T: serde::de::DeserializeOwned>(
+    pub(crate) async fn send<T: serde::de::DeserializeOwned>(
         &mut self,
-        msg: &S,
+        msg: ClientRequest,
     ) -> Result<T> {
-        {
-            let serialized = bincode::serialize(msg)?;
-            let _ = nixsocket::send(self.fd, &serialized, nixsocket::MsgFlags::MSG_CMSG_CLOEXEC)
-                .context("client sending request")?;
-        }
-        let reply: DaemonToClientReply<T> = {
-            let mut buf = [0u8; MSGSIZE];
-            let n = nixsocket::recv(self.fd, &mut buf, nixsocket::MsgFlags::MSG_CMSG_CLOEXEC)
-                .context("client recv")?;
-            let buf = &buf[0..n];
-            if buf.is_empty() {
-                bail!("Server sent an empty reply");
-            }
-            bincode::deserialize(buf).context("client parsing reply")?
-        };
+        self.send.send(msg).await?;
+        let reply = self.recv.recv().await?;
         match reply {
-            DaemonToClientReply::Success::<T>(r) => Ok(r),
+            DaemonToClientReply::Success(r) => Ok(bincode::deserialize(&r)?),
             DaemonToClientReply::Failure(buf) => {
                 // For now we just prefix server
                 anyhow::bail!("internal error: {}", buf);
@@ -87,7 +57,6 @@ impl ClientToDaemonConnection {
     }
 
     pub(crate) fn shutdown(&mut self) -> Result<()> {
-        nixsocket::shutdown(self.fd, nixsocket::Shutdown::Both)?;
         Ok(())
     }
 }
