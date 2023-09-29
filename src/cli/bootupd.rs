@@ -52,6 +52,11 @@ pub struct InstallOpts {
     #[clap(long)]
     device: Option<String>,
 
+    /// Also install config files for GRUB that are "static" and don't
+    /// rely on os-prober or grub2-mkconfig, but just have GRUB read the BLS configs.
+    #[clap(long)]
+    with_static_config: bool,
+
     #[clap(long = "component")]
     /// Only install these components
     components: Option<Vec<String>>,

@@ -1,12 +1,12 @@
 #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64"))]
 use crate::bios;
 use crate::component::{Component, ValidationResult};
-use crate::coreos;
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use crate::efi;
 use crate::model::{ComponentStatus, ComponentUpdatable, ContentMetadata, SavedState, Status};
 use crate::util;
 use crate::{component, ipc};
+use crate::{coreos, grub};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -104,6 +104,9 @@ pub(crate) fn get_components() -> Components {
     #[cfg(any(target_arch = "x86_64", target_arch = "powerpc64"))]
     #[allow(clippy::box_default)]
     insert_component(&mut components, Box::new(bios::Bios::default()));
+
+    #[allow(clippy::box_default)]
+    insert_component(&mut components, Box::new(grub::GrubConfigs::default()));
 
     components
 }

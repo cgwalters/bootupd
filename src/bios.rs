@@ -101,6 +101,7 @@ impl Component for Bios {
         };
 
         self.run_grub_install(dest_root, device)?;
+
         Ok(InstalledContent {
             meta,
             filetree: None,

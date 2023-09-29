@@ -47,3 +47,4 @@ install: install-units
 
 install-grub-static:
 	install -D -t ${DESTDIR}$(PREFIX)/lib/bootupd/grub2-static src/grub2/*.cfg
+	install -D -t ${DESTDIR}$(PREFIX)/lib/bootupd/grub2-static/efi src/grub2/efi/grub.cfg
