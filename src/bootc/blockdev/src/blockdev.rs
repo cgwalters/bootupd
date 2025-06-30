@@ -11,7 +11,7 @@ use fn_error_context::context;
 use regex::Regex;
 use serde::Deserialize;
 
-use bootc_utils::CommandRunExt;
+use crate::bootc_utils::CommandRunExt;
 
 #[derive(Debug, Deserialize)]
 struct DevicesOutput {

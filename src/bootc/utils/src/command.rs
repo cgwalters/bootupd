@@ -159,7 +159,7 @@ impl CommandRunExt for Command {
                     acc.push(' ');
                 }
                 // SAFETY: Writes to string can't fail
-                write!(&mut acc, "{}", crate::PathQuotedDisplay::new(&element)).unwrap();
+                write!(&mut acc, "{}", super::PathQuotedDisplay::new(&element)).unwrap();
                 acc
             })
     }
