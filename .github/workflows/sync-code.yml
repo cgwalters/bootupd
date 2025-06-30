@@ -1,0 +1,38 @@
+name: Sync bootc-blockdev code
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout bootupd
+        uses: actions/checkout@v4
+        with:
+          path: bootupd
+
+      - name: Checkout bootc-blockdev
+        uses: actions/checkout@v4
+        with:
+          repository: bootc-dev/bootc
+          path: bootc
+
+      - name: Sync code
+        run: |
+          bootcrev=$(cd bootc && git rev-parse HEAD)
+          echo bootcrev=${bootcrev} >> $GITHUB_ENV
+          rm bootupd/bootc -rf
+          mkdir bootupd/bootc
+          cp -r bootc/blockdev bootupd/bootc/
+          cp -r bootc/utils bootupd/bootc/
+      
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: bootupd
+          commit-message: "Sync code from bootc"
+          title: "Sync code from bootc"
+          body: "As of commit ${{ env.bootcrev }}"
+          branch: "sync-bootc-blockdev"
+
